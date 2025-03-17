@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>長者友善 影片剪輯器</title>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.6.0/wavesurfer.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f4;
+        }
+        h2 {
+            font-size: 24px;
+        }
+        button, input {
+            font-size: 20px;
+            padding: 15px;
+            margin: 10px;
+            width: 80%;
+            max-width: 300px;
+            border: none;
+            background-color: #007BFF;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        video {
+            width: 90%;
+            max-width: 600px;
+            margin: 10px 0;
+        }
+        .hidden { display: none; }
+        .subtitle-box {
+            margin-top: 20px;
+        }
+        #subtitlePreview {
+            background: black;
+            color: yellow;
+            font-size: 20px;
+            padding: 5px;
+            display: inline-block;
+        }
+        .audio-visualizer {
+            width: 100%;
+            height: 100px;
+            background-color: #ddd;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>🎥 長者友善 影片剪輯器</h2>
+
+    <!-- A. 匯入影片 -->
+    <input type="file" id="videoInput" accept="video/*">
+    <video id="videoPlayer" controls></video>
+    
+    <h3>✂️ 剪輯影片</h3>
+    <label>開始時間 (秒): <input type="number" id="startTime" min="0" value="0"></label>
+    <label>結束時間 (秒): <input type="number" id="endTime" min="0" value="5"></label>
+    <button id="trimBtn">✂️ 剪輯影片</button>
+    <a id="downloadLink" class="hidden" download="output.mp4">📥 下載剪輯影片</a>
+    
+    <h3>💬 添加字幕</h3>
+    <button id="addSubtitlesBtn">開始添加字幕</button>
+    <div id="subtitleSection" class="subtitle-box hidden">
+        <label>字幕內容: <input type="text" id="subtitleText"></label>
+        <label>開始時間 (秒): <input type="number" id="subtitleStart" min="0"></label>
+        <label>結束時間 (秒): <input type="number" id="subtitleEnd" min="0"></label>
+        <button id="applySubtitlesBtn">新增字幕</button>
+        <ul id="subtitleList"></ul>
+    </div>
+    <button id="generateSubtitledVideo">📼 產生含字幕影片</button>
+    <a id="subtitledDownloadLink" class="hidden" download="subtitled.mp4">📥 下載含字幕影片</a>
+
+    <!-- 字幕即時預覽 -->
+    <p>📺 字幕預覽：</p>
+    <div id="subtitlePreview"></div>
+    
+    <button id="addMusicBtn">🎵 加音樂</button>
+    <button id="addNarrationBtn">🎙 加旁白</button>
+    <button id="effectsBtn">✨ 加特效</button>
+    <button id="exportBtn">📤 完成影片</button>
+
+    <a id="downloadLink" class="hidden" download="output.mp4">📥 下載影片</a>
+
+    <!-- 音頻視覺化 -->
+    <div id="waveform" class="audio-visualizer"></div>
+
+    <!-- 語音識別 -->
+    <button id="voiceControlBtn">🎙 語音控制</button>
+
+    <script>
+       
+        document.addEventListener("DOMContentLoaded", async () => {
+            console.log("20250315-1030");
+            const { createFFmpeg, fetchFile } = window.FFmpeg;
+            const ffmpeg = createFFmpeg({ log: true });
+            const videoInput = document.getElementById('videoInput');
+            const videoPlayer = document.getElementById('videoPlayer');
+            const trimBtn = document.getElementById('trimBtn');
+            const downloadLink = document.getElementById('downloadLink');
+            const startTimeInput = document.getElementById('startTime');
+            const endTimeInput = document.getElementById('endTime');
+            const addSubtitlesBtn = document.getElementById('addSubtitlesBtn');
+            const subtitleSection = document.getElementById('subtitleSection');
+            const subtitleText = document.getElementById('subtitleText');
+            const subtitleStart = document.getElementById('subtitleStart');
+            const subtitleEnd = document.getElementById('subtitleEnd');
+            const applySubtitlesBtn = document.getElementById('applySubtitlesBtn');
+            const subtitleList = document.getElementById('subtitleList');
+            const generateSubtitledVideo = document.getElementById('generateSubtitledVideo');
+            const subtitledDownloadLink = document.getElementById('subtitledDownloadLink');
+            const subtitlePreview = document.getElementById('subtitlePreview');
+            const voiceControlBtn = document.getElementById('voiceControlBtn');
+
+            const waveSurfer = WaveSurfer.create({
+                container: '#waveform',
+                waveColor: 'blue',
+                progressColor: 'red',
+                height: 80
+            });
+            let videoFile = null;
+            let subtitles = [];
+            videoInput.addEventListener('change', () => {
+                videoFile = videoInput.files[0];
+                const videoURL = URL.createObjectURL(videoFile);
+                videoPlayer.src = videoURL;
+            });
+            
+
+            trimBtn.addEventListener('click', async () => {
+                if (!videoFile) {
+                    alert("請先上傳影片！");
+                    return;
+                }
+                await ffmpeg.load();
+                //const videoFile = videoInput.files[0];
+                //if (!videoFile) {
+                //    alert("請先上傳影片！");
+                //    return;
+                //}
+
+                ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoFile));
+                const start = startTimeInput.value;
+                const end = endTimeInput.value;
+                //await ffmpeg.run('-i', 'input.mp4', '-ss', '00:00:05', '-to', '00:00:10', '-c', 'copy', 'output.mp4');
+                await ffmpeg.run('-i', 'input.mp4', '-ss', start, '-to', end, '-c', 'copy', 'output.mp4');
+
+                const data = ffmpeg.FS('readFile', 'output.mp4');
+                const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+                downloadLink.href = url;
+                downloadLink.classList.remove('hidden');
+            });
+            addSubtitlesBtn.addEventListener('click', () => {
+                //subtitleSection.style.display = "block";
+                subtitleSection.classList.toggle("hidden");
+            });
+
+            applySubtitlesBtn.addEventListener('click', () => {
+                const text = subtitleText.value;
+                const start = subtitleStart.value;
+                const end = subtitleEnd.value;
+
+                subtitles.push({ text, start, end });
+                
+                 let listItem = document.createElement("li");
+                listItem.textContent = `(${start}s - ${end}s) ${text}`;
+                subtitleList.appendChild(listItem);
+            });
+
+            generateSubtitledVideo.addEventListener('click', async () => {
+                if (!videoFile) {
+                    alert("請先上傳影片！");
+                    return;
+                }
+                await ffmpeg.load();
+                ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoFile));
+
+                 let srtContent = subtitles.map((sub, index) => {
+                    let startTime = new Date(sub.start * 1000).toISOString().substr(11, 8).replace('.', ',');
+                    let endTime = new Date(sub.end * 1000).toISOString().substr(11, 8).replace('.', ',');
+                    return `${index + 1}\n${startTime} --> ${endTime}\n${sub.text}\n`;
+                }).join("\n");
+
+                ffmpeg.FS('writeFile', 'subtitles.srt', new TextEncoder().encode(srtContent));
+                await ffmpeg.run('-i', 'input.mp4', '-vf', 'subtitles=subtitles.srt:force_style='Fontsize=24,PrimaryColour=&H00FFFF00'",'-c:v', 'libx264', '-c:a', 'copy', 'subtitled.mp4');
+
+                const data = ffmpeg.FS('readFile', 'subtitled.mp4');
+                const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+                subtitledDownloadLink.href = url;
+                subtitledDownloadLink.classList.remove('hidden');
+            });
+
+            voiceControlBtn.addEventListener('click', () => {
+                alert("語音識別尚未啟用，請手動輸入字幕！");
+            });
+
+            // 🎤 語音識別
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                const recognition = new SpeechRecognition();
+                recognition.continuous = false;
+                recognition.lang = "zh-TW";
+
+                recognition.onresult = function(event) {
+                    const speechResult = event.results[0][0].transcript;
+                    console.log("語音指令：", speechResult);
+
+                    if (speechResult.includes("剪輯影片")) {
+                        trimBtn.click();
+                    } else if (speechResult.includes("字幕")) {
+                        addSubtitlesBtn.click();
+                    } else if (speechResult.match(/從(\d+)秒到(\d+)秒剪輯/)) {
+                        const match = speechResult.match(/從(\d+)秒到(\d+)秒剪輯/);
+                        startTimeInput.value = match[1];
+                        endTimeInput.value = match[2];
+                        trimBtn.click();
+                    } else {
+                        alert("未識別的指令，請再試一次！");
+                    }
+                };
+
+                voiceControlBtn.addEventListener('click', () => {
+                    recognition.start();
+                    alert("請說出您的指令，如「從 5 秒到 10 秒剪輯」或「添加字幕」");
+                });
+            } else {
+                voiceControlBtn.disabled = true;
+                alert("此瀏覽器不支援語音控制");
+            }
+        });
+    </script>
+
+</body>
+</html>
